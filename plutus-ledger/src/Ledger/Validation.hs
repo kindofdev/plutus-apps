@@ -1,3 +1,4 @@
+{-# LANGUAGE GADTs           #-}
 {-# LANGUAGE NamedFieldPuns  #-}
 {-# LANGUAGE TemplateHaskell #-}
 {-| Transaction validation using 'cardano-ledger-specs'
@@ -25,15 +26,16 @@ module Ledger.Validation(
   emulatorGlobals
   ) where
 
-import Cardano.Api.Shelley (alonzoGenesisDefaults, shelleyGenesisDefaults)
+import Cardano.Api.Shelley (Address (ShelleyAddress), AddressInEra (AddressInEra), NetworkId (Mainnet),
+                            alonzoGenesisDefaults, shelleyGenesisDefaults)
 import Cardano.Ledger.Alonzo (AlonzoEra)
 import Cardano.Ledger.Alonzo.PParams (PParams' (..))
 import Cardano.Ledger.Alonzo.Rules.Utxos (UtxosPredicateFailure, constructValidated)
-import Cardano.Ledger.BaseTypes (Globals (..), Network (..), boundRational, mkActiveSlotCoeff)
+import Cardano.Ledger.BaseTypes (Globals (..), Network (Testnet), boundRational, mkActiveSlotCoeff)
 import Cardano.Ledger.Core (Tx)
 import Cardano.Ledger.Crypto (StandardCrypto)
 import Cardano.Ledger.Keys (GenDelegs (..))
-import Cardano.Ledger.Shelley.API (Addr, ApplyTxError (..), Coin (..), LedgerEnv (..), MempoolEnv, MempoolState,
+import Cardano.Ledger.Shelley.API (Addr (..), ApplyTxError (..), Coin (..), LedgerEnv (..), MempoolEnv, MempoolState,
                                    NewEpochState, ShelleyGenesis (..), UtxoEnv (..), Validated)
 import Cardano.Ledger.Shelley.API qualified as Shelley.API
 import Cardano.Slotting.EpochInfo (fixedEpochInfo)
@@ -42,7 +44,10 @@ import Cardano.Slotting.Time (SystemStart (..), mkSlotLength)
 import Control.Lens (makeLenses, over, view, (&), (.~), (^.))
 import Data.Bifunctor (Bifunctor (..))
 import Data.Map qualified as Map
+import Data.Maybe (mapMaybe)
 import Data.Time.Format.ISO8601 qualified as F
+import Ledger qualified as P
+import Ledger.Tx.CardanoAPI as P
 
 type EmulatorEra = AlonzoEra StandardCrypto
 
@@ -119,7 +124,7 @@ makeBlock state =
 
 {-| Initial ledger state for a distribution
 -}
-initialState :: [(Addr StandardCrypto, Coin)] -> EmulatedLedgerState
+initialState :: [(P.PubKey, Coin)] -> EmulatedLedgerState
 initialState initialDistribution = EmulatedLedgerState
   { _ledgerEnv = Shelley.API.mkMempoolEnv nes 0
   , _memPoolState = Shelley.API.mkMempoolState nes
@@ -130,7 +135,14 @@ initialState initialDistribution = EmulatedLedgerState
     nes :: NewEpochState EmulatorEra
     nes = Shelley.API.initialState sg alonzoGenesisDefaults
     sg :: ShelleyGenesis EmulatorEra
-    sg = shelleyGenesisDefaults { sgInitialFunds = Map.fromList initialDistribution }
+    sg = shelleyGenesisDefaults { sgInitialFunds = Map.fromList $ mapMaybe toAddr initialDistribution }
+    toAddr :: (P.PubKey, Coin) -> Maybe (Addr StandardCrypto, Coin)
+    toAddr (pk, coin) =
+      -- Passing in Mainnet as a dummy value so we don't have to come up with a magic number
+      case P.toCardanoAddress Mainnet (P.pubKeyHashAddress (P.paymentPubKeyHash $ P.PaymentPubKey pk) Nothing) of
+        Right (AddressInEra _ (ShelleyAddress _ paymentCredential stakeAddressReference))
+            -> Just (Addr Testnet paymentCredential stakeAddressReference, coin)
+        _ -> Nothing
 
 {-| Reason for failing to add a transaction to the ledger
 -}
