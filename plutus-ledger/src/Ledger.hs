@@ -17,7 +17,7 @@ import Ledger.Contexts as Export
 import Ledger.Crypto as Export
 import Ledger.Scripts as Export
 import Ledger.Tx as Export
-import Ledger.Value as Export (noAdaValue)
+import Ledger.Value as Export (noAdaValue, TokenNameM)
 import Plutus.V1.Ledger.Ada (Ada)
 import Plutus.V1.Ledger.Interval as Export
 import Plutus.V1.Ledger.Orphans ()
